@@ -1,0 +1,67 @@
+openarm-bimanual-setup
+Copyright 2026 SeongminJaden
+
+This product includes software and hardware designs developed by
+Enactic, Inc. (https://github.com/enactic).
+
+--------------------------------------------------------------------------------
+Derived software  —  Apache License 2.0
+--------------------------------------------------------------------------------
+
+The following files under overlay/ are MODIFIED copies of files from Enactic,
+Inc. repositories, redistributed under the Apache License, Version 2.0:
+
+  overlay/openarm_description/assets/robot/openarm_v1.0/urdf/openarm_v10.urdf.xacro
+      from https://github.com/enactic/openarm_description
+      Copyright 2025-2026 Enactic, Inc.
+      Modifications: added optional RealSense camera and mount links
+      (chest D435, wrist D405 x2) behind a `cameras` argument, with mount
+      poses derived from the official CAD assembly.
+
+  overlay/openarm_bimanual_moveit_config/config/openarm_v1.0/openarm_bimanual.srdf
+  overlay/openarm_bimanual_moveit_config/config/openarm_v2.0/openarm_bimanual.srdf
+      from https://github.com/enactic/openarm_ros2
+      Copyright 2025-2026 Enactic, Inc.
+      Modifications: added a composite `both_arms` planning group and its
+      named states (home, hands_up, wave_ready, wave_out, wave_in), plus
+      disable_collisions entries for the new camera and mount links.
+
+You may obtain a copy of the Apache License 2.0 at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------------
+Derived hardware designs  —  CERN-OHL-S-2.0
+--------------------------------------------------------------------------------
+
+The following mesh files are exported from the OpenArm hardware CAD, which is
+licensed under the CERN Open Hardware Licence Version 2 - Strongly Reciprocal.
+They are redistributed here under that same licence.
+
+  overlay/openarm_description/assets/sensor/realsense/meshes/wrist_camera_base.stl
+  overlay/openarm_description/assets/sensor/realsense/meshes/wrist_camera_d405.stl
+  overlay/openarm_description/assets/sensor/realsense/meshes/chest_camera_bracket.stl
+
+      Source CAD: https://github.com/enactic/openarm_hardware
+                  (CAD files distributed via the links in that repository)
+      Copyright 2025-2026 Enactic, Inc.
+
+CERN-OHL-S-2.0 is available at
+
+    https://ohwr.org/cern_ohl_s_v2.txt
+
+As required by that licence, the Complete Source for these meshes is the
+upstream OpenArm hardware CAD linked above; the STL files here are a mesh
+export of unmodified parts from it, repositioned only for use in a URDF.
+
+--------------------------------------------------------------------------------
+Not redistributed
+--------------------------------------------------------------------------------
+
+Intel RealSense camera CAD models (D405, D435) are NOT included in this
+repository. Obtain them from Intel / RealSense directly:
+
+    https://dev.realsenseai.com/docs/cad-files/
+
+The ROS 2 packages `realsense2_description` and `realsense2_camera` are used as
+normal dependencies and are not vendored here.
