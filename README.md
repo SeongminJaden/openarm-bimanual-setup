@@ -15,6 +15,7 @@ alone. Where a value came from measurement or CAD, that is stated.
 |---|---|
 | `docs/STARTUP.md` | Full power-on → run procedure, failure modes, recovery |
 | `docs/TELEOP.md` | Leader–follower setup, CAN channel mapping, safety |
+| `docs/DISTRIBUTED.md` | Linux control PC + Windows/WSL2 planning station over DDS |
 | `scripts/openarm_can_setup.sh` | Brings up all four CAN FD channels, prints the role mapping |
 | `scripts/openarm_wave.py` | Bimanual named-pose sequence player (RViz preview + real execution) |
 | `overlay/` | Modified upstream files — cameras in the URDF, `both_arms` planning group |
@@ -55,6 +56,22 @@ Two dependencies are **not** resolvable with `rosdep` and must be installed by h
 sudo apt install ros-humble-zed-description   # openarm_description needs it, no rosdep rule
 sudo apt install libcli11-dev                 # openarm_can needs CLI11, build aborts without it
 ```
+
+> **`rosdep install` can fail silently.** It shells out to `sudo -H apt-get install`.
+> On a machine where sudo needs a password, and in a session without a tty (SSH,
+> scripted install), those calls fail and rosdep still exits 0. The build then breaks
+> far away from the cause:
+>
+> - missing `ros2_control` → `openarm_hardware`: *Could not find hardware_interface*
+> - missing MoveIt → `ModuleNotFoundError: No module named 'moveit_configs_utils'`
+>
+> Check with `rosdep check --from-paths src --ignore-src --rosdistro humble`; it must
+> say *All system dependencies have been satisfied*. If not, install explicitly:
+>
+> ```bash
+> sudo apt install ros-humble-ros2-control ros-humble-ros2-controllers \
+>   ros-humble-moveit ros-humble-moveit-configs-utils ros-humble-ros-gz
+> ```
 
 Then the rest, plus RealSense:
 
