@@ -1,0 +1,19 @@
+chest_calibration:
+  ros__parameters:
+    color_topic: /chest/openarm_chest_camera/color/image_raw
+    info_topic: /chest/openarm_chest_camera/color/camera_info
+    base_frame: openarm_body_link0
+    hand_frame: openarm_left_hand
+    mount_frame: openarm_chest_camera_bottom_screw_frame
+    optical_frame: openarm_chest_camera_color_optical_frame
+    dictionary: DICT_4X4_50
+    marker_id: 10
+    # REQUIRED: measured black-square width in metres, excluding white border.
+    # 60 mm supplied print; verify physical width before accepting the result.
+    marker_size_m: 0.060
+    output_dir: ~/chest_calibration
+    max_image_age_s: 1.0
+    max_reprojection_px: 1.0
+    ambiguity_margin_px: 0.15
+    max_position_error_m: 0.01
+    max_angle_error_deg: 2.0

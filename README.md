@@ -225,3 +225,7 @@ Intel RealSense CAD models are **not** redistributed here. Download them from
 <https://dev.realsenseai.com/docs/cad-files/> if you need them.
 
 See [`NOTICE`](NOTICE) for details.
+
+## 2026-09-23 calibrated laptop snapshot
+
+D455 camera calibration, encoder-only manual calibration, printable markers, tests, and original calibration records are now included. See [Ubuntu reinstall and restore notes (Korean)](docs/RESTORE_20260923_KO.md). This snapshot was tested with Ubuntu 22.04 / ROS 2 Humble; it is not yet an Isaac ROS 5.0 / Lyrical port.

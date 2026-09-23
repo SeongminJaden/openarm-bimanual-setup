@@ -1,0 +1,167 @@
+# Pen bench profile: find a pen by shape, not by colour.
+#
+# Colour cannot work here - the gripper fingers and the base plate are the
+# same black as the pen, so any brightness threshold returns all three.  The
+# depth gate removes the fingers (they are far nearer the camera than the work
+# surface) and the metric size test removes the plate (wrong shape at true
+# scale).  The dark cue below only narrows the search; it decides nothing.
+#
+# Start the camera with the launch file, so the topic namespace matches:
+#   ros2 launch realsense2_camera rs_launch.py #     camera_name:=openarm_left_camera camera_namespace:=oa #     align_depth.enable:=true depth_module.depth_units:=0.001
+#
+# If instead you started it with `ros2 run` and no remap, the topics stay at
+# /camera/camera/... while the FRAME ids still follow camera_name - which is
+# why target_frame below is openarm_left_camera_*, not camera_*.
+
+pen_detector:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    info_topic:  /camera/camera/color/camera_info
+    target_frame: openarm_left_camera_color_optical_frame
+
+    # The near limit is the gripper cut-off.  Raise it until the fingers stop
+    # appearing in the debug image; lower it if the pen itself disappears.
+    min_depth_m: 0.15
+    max_depth_m: 0.60
+    depth_scale: 0.001
+    depth_patch: 7
+
+    # Measure your pen and put the real numbers here.  The debug image prints
+    # the measured size of every rejected box in red, so tune against that.
+    pen_len_min_m: 0.100
+    pen_len_max_m: 0.180
+    pen_wid_min_m: 0.005
+    pen_wid_max_m: 0.020
+    min_aspect: 5.0
+
+    # Colour-free candidate selection: fit the work surface and keep only
+    # what stands proud of it.  The pen is ~10 mm tall, the base plate lies
+    # flat on the surface (below height_min), the fingers float far above it.
+    # Nothing here reads a pixel value.
+    use_plane_segmentation: true
+    plane_tol_m: 0.004
+    plane_iters: 80
+    plane_stride: 4
+    height_min_m: 0.003
+    height_max_m: 0.040
+
+    # Brightness is off: the fingers and the plate are the same black as the
+    # pen, so it cannot separate them.  Turn it on only as a speed-up when the
+    # pen really is the darkest thing left after the plane cut.
+    use_dark_mask: false
+    dark_v_max: 90
+    dark_s_max: 120
+
+    # YOLO-World decides WHICH object is the pen, from the text prompt
+    # below, with no training.  It cannot decide at what ANGLE: its boxes are
+    # axis-aligned, and a diagonal pen's axis-aligned box is a big square.
+    # So the box only gates the mask, and the angle still comes from the
+    # minimum-area rectangle fitted to the silhouette inside it.
+    #
+    # Needs: pip install ultralytics   (the node falls back to plane-only
+    # segmentation and says so in the log if the import fails)
+    use_yolo: true
+    yolo_model: ~/models/yolov8s-worldv2.pt
+    yolo_prompt: ['pen']
+    # Low on purpose: 'pen' is far outside what the backbone was trained on,
+    # so scores are modest.  The size test downstream rejects false boxes, so
+    # a loose threshold here costs little.
+    yolo_conf: 0.05
+    # Measured 11 ms per frame on the RTX 3050, so this is effectively
+    # every frame.  Raise it towards 0.5 if the node ever runs CPU-only.
+    yolo_period_s: 0.1
+    yolo_roi_pad_px: 8
+    yolo_fallback_otsu: true
+
+    # Image crop, in pixels, -1 for the image edge.  This is the reliable way
+    # to be rid of the gripper fingers: they are bolted to the same hand as
+    # the camera, so they occupy the same corner of every frame regardless of
+    # where the arm is, whereas the depth gate below only removes them when
+    # they happen to be nearer than everything else.  Open the debug image,
+    # read off where the fingers end, and cut there.  The crop is drawn in
+    # orange and everything outside it is dimmed.
+    roi_x0: -1
+    roi_y0: -1
+    roi_x1: -1
+    roi_y1: -1
+
+    min_area_px: 150
+    max_area_px: 60000
+
+    ema_alpha: 0.4
+    stable_count: 6
+    stable_tol_m: 0.008
+    publish_debug_image: true
+
+# ---------------------------------------------------------------------------
+# pen_center: drive the arm until the pen sits in the middle of the frame.
+#
+#   ros2 run openarm_vision_pick pen_center --ros-args --params-file <this>
+#
+# Needs move_group, the arm controllers, and pen_detector all running.  It
+# reads the pose pen_detector publishes, which is already expressed in the
+# camera optical frame, so centring is just x -> 0 and y -> 0 there.
+# ---------------------------------------------------------------------------
+pen_center:
+  ros__parameters:
+    use_sim_time: false
+
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    planning_frame: world
+    # Must match pen_detector target_frame if that is a camera frame; if the
+    # detector publishes in world instead, leave this as the camera frame and
+    # the node transforms the pose itself.
+    camera_frame: openarm_left_camera_color_optical_frame
+    target_pose_topic: /pen_detector/pose
+    # Only used to report the error in pixels alongside the millimetres.
+    info_topic: /camera/camera/color/camera_info
+
+    # Stop when the pen is this close to the optical axis.  6 mm at 300 mm is
+    # roughly 13 px on the D405 colour stream - well inside the detector own
+    # centroid noise, so tightening it much further just burns iterations.
+    center_tol_m: 0.006
+    # Fraction of the measured offset to take per step.  1.0 would be a
+    # deadbeat move and trusts the depth reading completely; 0.6 converges in
+    # a handful of steps and survives a bad frame.
+    gain: 0.6
+    max_step_m: 0.05
+    max_iters: 12
+    # The detector needs stable_count consecutive frames before it publishes
+    # again, so do not sample sooner than that after a move.
+    settle_s: 1.0
+    fresh_msgs: 3
+    detection_timeout: 20.0
+
+    # Keep the TCP at a constant height and solve for the horizontal step that
+    # still delivers the full image-plane correction.  With false the arm
+    # instead moves perpendicular to the tilted optical axis.
+    lock_z: true
+    fallback_to_planner: true
+
+    # A detection outside this distance band is a misfire; stop rather than
+    # chase it.
+    depth_min_m: 0.10
+    depth_max_m: 0.70
+
+    # Park at the observe pose before centring.  Off by default because this
+    # xyz came from the simulated table - re-measure it on the real bench
+    # before turning it on.
+    start_at_observe: false
+    observe_xyz: [0.257, 0.20, 0.55]
+    observe_jaw_yaw: 1.5708
+
+    vel_scale: 0.08
+    acc_scale: 0.08
+    planning_time: 10.0
+    planning_attempts: 16
+    pos_tolerance: 0.008
+    ori_tolerance: 0.10
+    cartesian_step: 0.004
+    cartesian_min_fraction: 0.9
+
+    dry_run: true
+    loop: false

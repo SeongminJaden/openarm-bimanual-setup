@@ -1,0 +1,138 @@
+# Find a human hand with the wrist camera, and drive the arm so the hand
+# lands in the middle of the frame.
+#
+# Two nodes, one file:
+#   ros2 run openarm_vision_pick hand_detector --ros-args --params-file <this>
+#   ros2 run openarm_vision_pick pen_center    --ros-args --params-file <this>
+#
+# Start the camera at a resolution the USB link can actually carry.  Measured
+# on this PC, where the D405 sits on a USB 2.0 port:
+#     848x480 -> 10 fps      640x480 -> 30 fps      480x270 -> 60 fps depth
+# so 848x480 is what was capping the whole pipeline at 10 Hz.  infra1 is off
+# because nothing here reads it and it costs a fifth of the bandwidth.
+#
+#   ros2 run realsense2_camera realsense2_camera_node --ros-args \
+#     -p camera_name:=openarm_left_camera \
+#     -p align_depth.enable:=true -p depth_module.depth_units:=0.001 \
+#     -p rgb_camera.profile:=640x480x30 \
+#     -p depth_module.profile:=640x480x30 \
+#     -p enable_infra1:=false -p enable_infra2:=false
+#
+# Moving the camera to one of the free USB 3 ports lifts the cap entirely.
+
+hand_detector:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    info_topic:  /camera/camera/color/camera_info
+    target_frame: openarm_left_camera_color_optical_frame
+
+    depth_scale: 0.001
+    # This near limit is the primary defence against detecting the robot's own
+    # gripper.  Measured from TF on this arm, in the camera's own frame:
+    #     openarm_left_hand      [+0.009 +0.060 +0.037]    72 mm away
+    #     openarm_left_hand_tcp  [+0.010 +0.010 +0.104]   105 mm away
+    # so the gripper occupies roughly 50-140 mm, dead centre in the image -
+    # the TCP is only 10 mm off the optical axis.  Requiring the hand to be
+    # beyond 180 mm removes the whole gripper by geometry, and a human hand
+    # reaching in is comfortably further out than that anyway.
+    #
+    # Lower this only if a real hand at arm's length is being missed, and
+    # watch the debug image for the gripper coming back.
+    min_depth_m: 0.18
+    max_depth_m: 1.20
+
+    # Open-vocabulary detection: no training, no dataset.  Several phrasings
+    # cost nothing extra - they are one batched text embedding - and a hand
+    # reads differently open, gripping, or edge on.
+    detector_mode: depth
+    depth_band_steps: 5
+    near_floor_percentile: 2.0
+    yolo_model: ~/models/yolov8s-worldv2.pt
+    yolo_prompt: ['hand', 'human hand', 'person']
+    # Which of those prompt indices count.  'person' is index 2 and is kept
+    # because an arm entering the frame often scores higher as a person than
+    # as a hand; set this to [0, 1] if that starts catching a body in the
+    # background.
+    hand_class_ids: [0, 1, 2]
+    yolo_conf: 0.05
+    yolo_period_s: 0.1
+    yolo_box_pad_px: 4
+
+    # Inside the box the hand is the NEAR cluster and the bench behind it is
+    # the far one.  This percentile picks the near one without assuming any
+    # absolute distance, and depth_band_m is how deep a hand is.
+    near_percentile: 20.0
+    depth_band_m: 0.06
+    min_hand_px: 400
+
+    # Sanity on the blob's true size, longest side.  A hand is 70-220 mm
+    # across; outside that it is a forearm, a torso, or a bad box.
+    hand_min_m: 0.060
+    hand_max_m: 0.250
+
+    # Second line of defence, in case a hand is held right at the fingertips.
+    # Any candidate within self_exclude_m of one of these links is the robot
+    # looking at itself.  The comparison is in 3-D, so a human hand at the
+    # same range but off to one side still passes.
+    #
+    # openarm_left_left_finger / _right_finger are NOT listed: they are absent
+    # from the TF tree on this robot, because the gripper joints are not being
+    # published in /joint_states.  If that gets fixed they are the better
+    # links to use, being the parts that actually stick out.
+    self_links: ['openarm_left_hand', 'openarm_left_hand_tcp']
+    self_exclude_m: 0.07
+
+    ema_alpha: 0.4
+    stable_count: 4
+    stable_tol_m: 0.015
+    publish_debug_image: true
+
+pen_center:
+  ros__parameters:
+    use_sim_time: false
+
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    planning_frame: world
+    camera_frame: openarm_left_camera_color_optical_frame
+    # This is the only line that makes it chase a hand instead of a pen.
+    target_pose_topic: /hand_detector/pose
+    info_topic: /camera/camera/color/camera_info
+
+    # Looser than for the pen: a hand is soft, it drifts, and there is no
+    # point chasing millimetres it does not hold still for.
+    center_tol_m: 0.015
+    gain: 0.5
+    max_step_m: 0.05
+    max_iters: 15
+    settle_s: 1.0
+    fresh_msgs: 3
+    detection_timeout: 20.0
+
+    # Measured on this robot: the optical axis is 37 degrees off vertical, so
+    # holding the height costs only a 1.25x longer sideways step.  Well clear
+    # of the 3x mark where the node warns.
+    lock_z: true
+    fallback_to_planner: true
+
+    depth_min_m: 0.08
+    depth_max_m: 1.00
+
+    start_at_observe: false
+    observe_xyz: [0.257, 0.20, 0.55]
+    observe_jaw_yaw: 1.5708
+
+    vel_scale: 0.08
+    acc_scale: 0.08
+    planning_time: 10.0
+    planning_attempts: 16
+    pos_tolerance: 0.008
+    ori_tolerance: 0.10
+    cartesian_step: 0.004
+    cartesian_min_fraction: 0.9
+
+    dry_run: true
+    loop: false

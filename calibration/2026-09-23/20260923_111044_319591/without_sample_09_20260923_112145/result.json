@@ -1,0 +1,174 @@
+{
+  "accepted": false,
+  "base_camera": [
+    [
+      0.007105568874250456,
+      -0.6997241673735155,
+      0.7143777715497687,
+      0.05796747302064531
+    ],
+    [
+      -0.999747069177138,
+      0.010273202721998761,
+      0.020006473391199764,
+      -0.011985368060644264
+    ],
+    [
+      -0.021337960602959782,
+      -0.7143392407667928,
+      -0.6994741886145843,
+      0.6311690100679359
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "hand_marker": [
+    [
+      -0.0259455803387577,
+      0.8066148331730036,
+      0.5905076949254542,
+      0.1359245375788852
+    ],
+    [
+      0.9986884688046094,
+      -0.005166705374243234,
+      0.050937681850288796,
+      0.0017041109187466393
+    ],
+    [
+      0.044138069028793525,
+      0.5910548333791578,
+      -0.805422879487258,
+      0.023194796520222005
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "base_mount": [
+    [
+      0.7140490607106795,
+      -0.007774151623488312,
+      0.7000524990775552,
+      0.03991404794967668
+    ],
+    [
+      0.01881355682287286,
+      0.9997903037703798,
+      -0.008086938011446,
+      -0.0004931657329162367
+    ],
+    [
+      -0.6998428316256909,
+      0.0189449479614898,
+      0.7140455867582076,
+      0.6285952647789067
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "chest_camera_xyz": [
+    0.03991404794967668,
+    -0.0004931657329162367,
+    0.6285952647789067
+  ],
+  "chest_camera_rpy": [
+    0.026525623612153715,
+    0.7751774405974197,
+    0.02634161460620011
+  ],
+  "training": {
+    "count": 24,
+    "rms_position_m": 0.003511917967045893,
+    "max_position_m": 0.007881133795981595,
+    "max_angle_deg": 2.500094452321576
+  },
+  "validation": {
+    "count": 6,
+    "rms_position_m": 0.004221111884358346,
+    "max_position_m": 0.007158528480503644,
+    "max_angle_deg": 2.0069873238979437
+  },
+  "limits": {
+    "max_position_m": 0.01,
+    "max_angle_deg": 2.0
+  },
+  "parameters": {
+    "color_topic": "/chest/openarm_chest_camera/color/image_raw",
+    "info_topic": "/chest/openarm_chest_camera/color/camera_info",
+    "base_frame": "openarm_body_link0",
+    "hand_frame": "openarm_left_hand",
+    "mount_frame": "openarm_chest_camera_bottom_screw_frame",
+    "optical_frame": "openarm_chest_camera_color_optical_frame",
+    "dictionary": "DICT_4X4_50",
+    "marker_id": 10,
+    "marker_size_m": 0.06,
+    "output_dir": "~/chest_calibration",
+    "max_image_age_s": 1.0,
+    "max_reprojection_px": 1.0,
+    "ambiguity_margin_px": 0.15,
+    "max_position_error_m": 0.01,
+    "max_angle_error_deg": 2.0
+  },
+  "sample_count": 30,
+  "last_sample_stamp_ns": 1790129940115572998,
+  "change_from_urdf_m_deg": [
+    0.010990373650593481,
+    1.3050674508337436
+  ],
+  "source_session": "/home/seongmin/chest_calibration/20260923_111044_319591",
+  "excluded_original_sample_numbers": [
+    9
+  ],
+  "validation_original_sample_numbers": [
+    5,
+    10,
+    15,
+    20,
+    25,
+    30
+  ],
+  "sample_original_numbers_in_solver_order": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    11,
+    10,
+    12,
+    13,
+    14,
+    16,
+    15,
+    17,
+    18,
+    19,
+    21,
+    20,
+    22,
+    23,
+    24,
+    26,
+    25,
+    27,
+    28,
+    29,
+    31,
+    30
+  ]
+}

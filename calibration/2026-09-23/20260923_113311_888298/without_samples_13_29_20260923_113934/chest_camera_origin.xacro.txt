@@ -1,0 +1,2 @@
+<xacro:arg name="chest_camera_xyz" default="0.044070223 0.004944888 0.625958005" />
+<xacro:arg name="chest_camera_rpy" default="0.023831869 0.778021855 0.035976233" />

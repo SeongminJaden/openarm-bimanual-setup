@@ -1,0 +1,79 @@
+# Parameters for the Gazebo simulation.
+#
+# Colour and camera_info land on the same topics realsense2_camera uses; only
+# the depth topic differs, because gazebo_ros publishes a sensor plugin's
+# secondary topics under the sensor's own name.
+
+object_detector:
+  ros__parameters:
+    use_sim_time: true
+
+    color_topic: /oa/openarm_left_camera/color/image_raw
+    depth_topic: /oa/openarm_left_camera/color/depth/image_raw
+    info_topic:  /oa/openarm_left_camera/color/camera_info
+    target_frame: world
+
+    # Gazebo/Blue.  Nothing else in the scene is blue, and blue needs no hue
+    # wrap-around, unlike red.
+    hsv_lower: [100, 80, 40]
+    hsv_upper: [140, 255, 255]
+    hue_wrap: false
+
+    min_area_px: 200
+    max_area_px: 200000
+
+    # Gazebo depth images are 32FC1 in metres, so depth_scale is unused here.
+    depth_scale: 0.001
+    depth_patch: 5
+    min_depth_m: 0.05
+    max_depth_m: 2.5
+
+    ema_alpha: 0.4
+    stable_count: 5
+    stable_tol_m: 0.01
+    publish_debug_image: true
+
+pick_and_place:
+  ros__parameters:
+    use_sim_time: true
+
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    planning_frame: world
+    target_pose_topic: /object_detector/pose
+
+    gripper_action: /left_gripper_controller/follow_joint_trajectory
+    # Both fingers: Gazebo Classic ignores the URDF mimic.
+    gripper_joints: [openarm_left_finger_joint1, openarm_left_finger_joint2]
+    gripper_open: 0.040
+    gripper_closed: 0.012
+    gripper_time: 1.0
+
+    # The wrist camera looks along the approach axis tilted towards hand -X,
+    # so the observe point sits back from the object along that direction.
+    # jaw_yaw is 90 deg, not 0: a top-down grasp with the jaws across world X
+    # has no IK solution anywhere over this table - sweeping /compute_ik gives
+    # NO_IK_SOLUTION at yaw 0 for every pose tried, and the whole workspace
+    # opens up at 90.  At 90 deg hand -X points along world -X, which is why
+    # the offset is in x here and not in y.
+    observe_xyz: [0.257, 0.20, 0.55]
+    observe_jaw_yaw: 1.5708
+    home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    grasp_z_offset: 0.005
+    approach_height: 0.12
+    lift_height: 0.15
+    place_xyz: [0.33, 0.02, 0.4175]
+
+    vel_scale: 0.15
+    acc_scale: 0.15
+    planning_time: 8.0
+    planning_attempts: 12
+    pos_tolerance: 0.008
+    ori_tolerance: 0.10
+    cartesian_step: 0.005
+    cartesian_min_fraction: 0.85
+
+    detection_timeout: 60.0
+    dry_run: false
+    loop: false

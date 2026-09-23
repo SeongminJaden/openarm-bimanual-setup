@@ -1,0 +1,151 @@
+# Chest camera (D455f) finds a hand; the arm reaches towards it.
+#
+# This is eye-TO-hand: the camera is bolted to the body, so moving the arm
+# does not change what it sees.  Centring the hand in the frame is therefore
+# impossible by construction, and pen_center has no job here - reach_to_hand
+# takes its place, using the hand's position in `world` rather than its
+# position in the image.
+#
+# Start the chest camera first.  serial_no must arrive as a STRING, hence the
+# leading underscore, which the wrapper strips; a bare number is parsed as an
+# integer and the node refuses to start.  The USB descriptor serial in sysfs
+# (254643066593) is NOT the string librealsense matches on - it wants
+# 419122302733.
+#
+#   ros2 run realsense2_camera realsense2_camera_node --ros-args \
+#     -p serial_no:=_419122302733 \
+#     -p camera_name:=openarm_chest_camera \
+#     -p camera_namespace:=chest \
+#     -p align_depth.enable:=true -p depth_module.depth_units:=0.001
+#
+# The D455f is on USB 3.2 at 5 Gbps, so it does not need the resolution cuts
+# the wrist D405 needs on its USB 2 port.
+
+hand_detector:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /chest/openarm_chest_camera/color/image_raw
+    depth_topic: /chest/openarm_chest_camera/aligned_depth_to_color/image_raw
+    info_topic:  /chest/openarm_chest_camera/color/camera_info
+
+    # Images are in the camera's optical frame; poses go out in world.  That
+    # transform is the whole point of a body-mounted camera: a point in a
+    # camera frame is not a place anything can plan to.
+    camera_frame: openarm_chest_camera_color_optical_frame
+    target_frame: world
+
+    depth_scale: 0.001
+    # A D455 starts at about 0.4 m and is happy out to several metres, unlike
+    # the wrist D405 which tops out around 0.5 m.
+    min_depth_m: 0.40
+    max_depth_m: 3.00
+
+    # No network: past the near cut-off, a hand reaching into the workspace is
+    # the nearest hand-sized thing.  Set detector_mode to 'yolo' if other
+    # things start reaching in too.
+    detector_mode: depth
+    depth_band_steps: 6
+    near_floor_percentile: 2.0
+
+    yolo_model: ~/models/yolov8s-worldv2.pt
+    yolo_prompt: ['hand', 'human hand', 'person']
+    hand_class_ids: [0, 1, 2]
+    yolo_conf: 0.05
+    yolo_period_s: 0.1
+    yolo_box_pad_px: 4
+
+    near_percentile: 20.0
+    depth_band_m: 0.10
+    min_hand_px: 600
+
+    hand_min_m: 0.060
+    hand_max_m: 0.250
+
+    # The chest camera can see the robot's own gripper from across the bench,
+    # so the self test still earns its keep.  These links are compared in the
+    # camera frame, which is why camera_frame above has to be right.
+    self_links: ['openarm_left_hand', 'openarm_left_hand_tcp',
+                 'openarm_right_hand', 'openarm_right_hand_tcp']
+    self_exclude_m: 0.15
+
+    ema_alpha: 0.4
+    stable_count: 4
+    stable_tol_m: 0.020
+    publish_debug_image: true
+
+reach_to_hand:
+  ros__parameters:
+    use_sim_time: false
+
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    planning_frame: world
+    base_link: openarm_body_link0
+    target_pose_topic: /hand_detector/pose
+
+    # Stop this far short of the hand, measured back along the line from the
+    # robot base.  The arm is reaching TOWARDS a person, not into them.
+    standoff_m: 0.15
+
+    # A cap on how far the TCP TRAVELS in one commanded move - not a sanity
+    # check on the target.  The arm rests hanging straight down (TCP at world
+    # [0.000, 0.155, 0.076] with the base at [0.000, 0.031, 0.698]), so the
+    # first move to anything in front of the robot is most of the reach: 0.35
+    # here refused a perfectly good 640 mm first reach.  The workspace box
+    # bounds WHERE the arm may go; this bounds how far it goes at once.
+    max_step_m: 0.80
+
+    # The anti-jump guard, as a SPEED.  One tracking cycle is a full
+    # plan-and-execute, a second or two, and a hand covers a lot of ground in
+    # a second - a fixed 0.20 m cap rejected ordinary human movement as a
+    # misdetection.  The allowance grows with the time since the last goal.
+    max_target_speed_m_s: 1.5
+    jump_floor_m: 0.15
+
+    # While tracking, do not stall for the full detection_timeout when the
+    # hand leaves the frame - notice quickly and keep watching.
+    loop_detection_timeout: 3.0
+
+    # Nothing outside this box is ever planned to, whatever the camera
+    # reports.  Derived from the arm's own geometry, measured from TF on this
+    # robot rather than guessed:
+    #
+    #   left arm base   world [0.000, 0.031, 0.698]
+    #   TCP hanging     world [0.000, 0.155, 0.076]
+    #
+    # so the base sits 0.698 m up and the arm reaches about 0.62 m from it.
+    # The box is that reach, clipped to the half-space in front of the robot.
+    #
+    # The first version of this file used z >= 0.25 and refused a perfectly
+    # good goal at z = 0.246 - four millimetres short.  A refusal now prints
+    # the axis and the margin, and the box can be widened without a restart:
+    #   ros2 param set /reach_to_hand ws_min "[0.05, -0.55, 0.10]"
+    #
+    # STILL WORTH CHECKING: the planning scene contains no table, so this box
+    # is the only thing stopping a low goal driving the arm into the bench.
+    # Measure your bench top in world coordinates and raise the z floor to
+    # sit above it.
+    ws_min: [0.05, -0.55, 0.10]
+    ws_max: [0.65, 0.65, 0.90]
+
+    # jaw_yaw 0 has no IK solution anywhere over this table - swept through
+    # /compute_ik - so 90 degrees is the value that works.
+    jaw_yaw: 1.5708
+
+    retarget_m: 0.05
+    settle_s: 0.5
+    detection_timeout: 20.0
+    fresh_msgs: 2
+
+    vel_scale: 0.08
+    acc_scale: 0.08
+    planning_time: 10.0
+    planning_attempts: 16
+    pos_tolerance: 0.015
+    ori_tolerance: 0.20
+
+    dry_run: true
+    # true follows the hand continuously: re-plan whenever it has moved more
+    # than retarget_m.  false does a single reach and exits.
+    loop: false

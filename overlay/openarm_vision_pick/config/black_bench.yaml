@@ -1,0 +1,48 @@
+# Detector-only bench profile: a black object, live D405, no robot.
+#
+# Nothing here needs the arm.  target_frame is the camera's own optical frame,
+# so the pose comes out in camera coordinates and the TF lookup is an identity
+# - realsense2_camera publishes that frame itself, which means this profile
+# runs with the camera on a desk and the robot switched off.
+#
+# Start the camera first:
+#   ros2 launch realsense2_camera rs_launch.py #     camera_name:=openarm_left_camera camera_namespace:=oa #     align_depth.enable:=true depth_module.depth_units:=0.001
+#
+# camera_name and camera_namespace are LAUNCH arguments, not node parameters -
+# passing them to `ros2 run` as -p is silently ignored and the camera comes up
+# as /camera/camera/... instead.  With `ros2 run` you must remap instead:
+#   -r __node:=openarm_left_camera -r __ns:=/oa
+
+object_detector:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /oa/openarm_left_camera/color/image_raw
+    depth_topic: /oa/openarm_left_camera/aligned_depth_to_color/image_raw
+    info_topic:  /oa/openarm_left_camera/color/camera_info
+    target_frame: openarm_left_camera_color_optical_frame
+
+    # Black is achromatic and dark: any hue, little saturation, low value.
+    # These are a starting point, not a calibration - a black object under a
+    # bright lamp can easily read V=90, and the arm's own fingers are black
+    # too, so tighten V and lean on min/max_depth_m to keep the gripper out
+    # of the mask.
+    hsv_lower: [0, 0, 0]
+    hsv_upper: [179, 90, 60]
+    hue_wrap: false
+
+    min_area_px: 400
+    max_area_px: 120000
+
+    # depth_units was forced to 0.001 on the wrapper command line above.  If
+    # you start the camera without that flag, a D405 usually reports 0.0001
+    # and every distance below comes out ten times too large.
+    depth_scale: 0.001
+    depth_patch: 7
+    min_depth_m: 0.10
+    max_depth_m: 0.80
+
+    ema_alpha: 0.4
+    stable_count: 8
+    stable_tol_m: 0.008
+    publish_debug_image: true

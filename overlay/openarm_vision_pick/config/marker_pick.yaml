@@ -1,0 +1,146 @@
+# Move the object carrying tag 3 onto the centre of tag 0.
+#
+#   ros2 run openarm_vision_pick marker_detector --ros-args \
+#     -r __node:=chest_marker_detector \
+#     --params-file <config>/marker.yaml
+#   ros2 run openarm_vision_pick marker_pick_place --ros-args \
+#     --params-file <config>/marker_pick.yaml
+#
+# The detector must have select_id set to the OBJECT's tag (3), so that the
+# grasp pose and the measured width describe the thing being picked up rather
+# than the destination.  Both tags still arrive on ~/poses, which is where
+# this node reads the destination from.
+#
+# Tag sizes are per id in marker.yaml - id 0 is 80 mm, id 3 is 60 mm - and
+# getting either wrong moves the corresponding point by the same proportion.
+
+marker_pick_place:
+  ros__parameters:
+    use_sim_time: false
+
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    planning_frame: world
+
+    poses_topic: /chest_marker_detector/poses
+    ids_topic: /chest_marker_detector/ids
+    grasp_pose_topic: /chest_marker_detector/pose
+    grasp_width_topic: /chest_marker_detector/grasp_width
+    object_dims_topic: /chest_marker_detector/object_dims
+
+    # 3 is on the object, 0 is where it goes.
+    pick_id: 3
+    place_id: 0
+
+    gripper_action: /left_gripper_controller/follow_joint_trajectory
+    # One joint on hardware: finger_joint2 really is a mimic there.
+    gripper_joints: ['openarm_left_finger_joint1']
+    # The gripper command is a JOINT POSITION, not an opening.  From the
+    # URDF the two fingers sit at y = -0.005 and +0.005 and travel apart, so
+    #     opening = finger_gap_closed_m + 2 * joint
+    # and the 0.044 travel limit means the widest opening is 98 mm.  An
+    # earlier config's `gripper_open: 0.040` was that joint value, not a
+    # span, and treating it as a span made a 40 mm object look ungraspable.
+    finger_gap_closed_m: 0.010
+    finger_travel_max_m: 0.044
+
+    # Where to rest the jaws while approaching, as an OPENING.
+    gripper_open_span_m: 0.090
+    # Close this much narrower than the measured object, so the jaws load up
+    # instead of merely touching it.
+    grip_squeeze_m: 0.006
+    gripper_time: 1.5
+
+    approach_height_m: 0.10
+    lift_height_m: 0.12
+    # Release the object this far above the destination surface rather than
+    # pressing it into the bench.
+    place_clearance_m: 0.004
+    # Only used if the detector reports no measurement.
+    assumed_height_m: 0.040
+    assumed_width_m: 0.050
+
+    # Checked before planning, for the grasp and the place alike.  Measured
+    # from the arm's own geometry: the left base sits at world
+    # [0.000, 0.031, 0.698] and the arm reaches about 0.62 m.
+    ws_min: [0.05, -0.55, 0.10]
+    ws_max: [0.65, 0.65, 0.90]
+
+    vel_scale: 0.08
+    acc_scale: 0.08
+    planning_time: 10.0
+    planning_attempts: 16
+    pos_tolerance: 0.010
+    ori_tolerance: 0.15
+    cartesian_step: 0.004
+    cartesian_min_fraction: 0.9
+
+    # A parallel gripper's grasp is the same turned 180 degrees, and for a
+    # nearly square object the quarter turns work too.  Each is checked
+    # against /compute_ik before planning, because whole bands of jaw angle
+    # have no IK solution on this arm - a top-down grasp at yaw 0 has none
+    # anywhere over the bench - and which band the object lands in is decided
+    # by how it happens to be lying.
+    try_yaw_offsets_deg: [0.0, 180.0, 90.0, 270.0]
+    square_ratio: 0.8
+    ik_timeout_s: 0.05
+    # How far the hand may lean from vertical, tried in this order once
+    # straight down fails.  Insisting on plumb was refusing grasps at spots
+    # the arm can plainly reach - it had been put there by hand - because
+    # holding the hand vertical at the far end of the reach folds the wrist
+    # to its limit.  Pitch (about the jaw axis) is tried before roll.
+    tilt_deg: [0.0, 15.0, 30.0]
+
+    # Jaw angles to try at the place, relative to the grasp's.  The place is
+    # free to turn - the wrist can rotate the held object about vertical on
+    # the way over, and the destination asks only for a position - so this
+    # is tried in full before giving up.  No turn first, then quarters, then
+    # eighths.
+    place_yaw_offsets_deg: [0.0, 180.0, 90.0, 270.0, 45.0, 135.0, 225.0, 315.0]
+
+    detection_timeout: 30.0
+
+    # After the last step - and after an abort - go back to the INITIAL
+    # position: wherever the arm was when the run started, read from TF.
+    # The final stretch into it is an unchecked straight descent from
+    # initial_lift_m above, because once the hand has left its resting spot
+    # the octomap fills in the bench beside it and calls the spot occupied.
+    # 'home_joints' uses the fixed joint vector instead.
+    # Pick the object up and stop, holding it - no place tag needed.
+    # For trying out the grasp on its own.  Ctrl-C when done.
+    lift_only: false
+    return_to: initial
+    initial_lift_m: 0.08
+    home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    return_home: true
+    return_home_on_abort: true
+
+    # The picked object is attached to this link while held, and these links
+    # may touch it.  That is what lets the planner carry it through the
+    # transfer without objecting to the fingers being inside it.
+    attach_link: openarm_left_hand_tcp
+    touch_links: [openarm_left_hand, openarm_left_hand_tcp,
+                  openarm_left_left_finger, openarm_left_right_finger]
+    assumed_length_m: 0.100
+
+    # Before a checked plan that follows a contact move: let the octomap
+    # clear the arm's own voxels, and if the start is still inside the map,
+    # back straight up this far (unchecked) and look again.
+    # After the lift, ask the wrist camera whether the object came with the
+    # hand: its tag should sit within held_radius_m of the TCP.  Still on
+    # the bench, or not seen, means an empty hand - abort there, with the
+    # object undamaged where it was, rather than carry nothing across.
+    # Needs the launch started with wrist_camera:=true wrist_detector:=true.
+    verify_grasp: true
+    verify_poses_topic: /wrist_marker_detector/poses
+    verify_ids_topic: /wrist_marker_detector/ids
+    held_radius_m: 0.08
+    verify_timeout_s: 3.0
+    # false: if the wrist detector is silent, warn and carry on unverified.
+    verify_required: false
+
+    octomap_settle_s: 1.0
+    clear_step_m: 0.08
+    clear_tries: 2
+    settle_s: 0.5
+    dry_run: true

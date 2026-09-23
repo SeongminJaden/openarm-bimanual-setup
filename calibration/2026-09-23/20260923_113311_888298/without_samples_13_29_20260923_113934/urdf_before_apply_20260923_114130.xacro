@@ -52,8 +52,8 @@ limitations under the License.
        optical frame 74 mm apart (depth->colour offset +0.015 vs -0.059), so
        the wrong one puts every colour-image measurement 74 mm off. -->
   <xacro:arg name="chest_camera_model" default="d455" />
-  <xacro:arg name="chest_camera_xyz" default="0.044070223 0.004944888 0.625958005" />
-  <xacro:arg name="chest_camera_rpy" default="0.023831869 0.778021855 0.035976233" />
+  <xacro:arg name="chest_camera_xyz" default="0.0290 0.0000 0.6274" />
+  <xacro:arg name="chest_camera_rpy" default="0.0 0.785398 0.0" />
   <xacro:arg name="left_camera_xyz"  default="0.060470 0.000000 -0.014920" />
   <xacro:arg name="right_camera_xyz" default="0.060470 0.000000 -0.014920" />
   <xacro:arg name="wrist_camera_rpy" default="0.0 -0.927295 3.141593" />

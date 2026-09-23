@@ -1,0 +1,92 @@
+# Parameters for the real robot, with an Intel RealSense D405 on the left wrist.
+#
+# Start the camera as
+#   ros2 run realsense2_camera realsense2_camera_node --ros-args \
+#     -p camera_name:=openarm_left_camera -p camera_namespace:=oa \
+#     -p align_depth.enable:=true
+# so the topics below exist and the wrapper publishes the optical frames that
+# tie the images into the robot's TF tree.
+
+object_detector:
+  ros__parameters:
+    color_topic: /oa/openarm_left_camera/color/image_raw
+    depth_topic: /oa/openarm_left_camera/aligned_depth_to_color/image_raw
+    info_topic:  /oa/openarm_left_camera/color/camera_info
+    target_frame: world
+
+    # Black: any hue, little saturation, low value.  Tune against the real
+    # object under the real lighting - see config/black_bench.yaml, which
+    # runs the detector alone with no robot attached.
+    hsv_lower: [0, 0, 0]
+    hsv_upper: [179, 90, 60]
+    hue_wrap: false
+
+    min_area_px: 300
+    max_area_px: 200000
+
+    # VERIFY THIS BEFORE THE FIRST RUN.  The wrapper publishes 16UC1 in the
+    # device's native depth unit, and it is not the same on every model: 0.001
+    # m/unit on a D435, but a D405 commonly defaults to 0.0001.  Getting it
+    # wrong scales every reported distance by ten.  Check with
+    #   ros2 topic echo --once /oa/openarm_left_camera/aligned_depth_to_color/image_raw
+    # against a tape measure, or force the unit on the wrapper with
+    #   -p depth_module.depth_units:=0.001
+    depth_scale: 0.001
+    depth_patch: 7
+    min_depth_m: 0.07
+    max_depth_m: 1.0
+
+    ema_alpha: 0.4
+    stable_count: 8
+    stable_tol_m: 0.008
+    publish_debug_image: true
+
+pick_and_place:
+  ros__parameters:
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    planning_frame: world
+    target_pose_topic: /object_detector/pose
+
+    gripper_action: /left_gripper_controller/follow_joint_trajectory
+    # One joint only: on hardware finger_joint2 really is a mimic.
+    gripper_joints: [openarm_left_finger_joint1]
+    gripper_open: 0.040
+    gripper_closed: 0.012
+    gripper_time: 1.5
+
+    # jaw_yaw 0 has NO IK solution anywhere over the table - swept through
+    # /compute_ik in simulation, every top-down pose fails with
+    # NO_IK_SOLUTION at yaw 0 and the whole workspace opens up at 90 deg.
+    # The arm model is the same on hardware, so the same value applies.  At
+    # 90 deg the wrist camera's tilt lands along world -X, which is why the
+    # observe point is offset in x.  Re-measure on the real bench: this xyz
+    # came from the simulated table at z = 0.40.
+    observe_xyz: [0.257, 0.20, 0.55]
+    observe_jaw_yaw: 1.5708
+    home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # NEGATIVE on purpose.  The depth camera reports the object's visible TOP
+    # face, and the TCP sits at the fingertips, so adding a positive offset
+    # closes the jaws above the object - measured in simulation: TCP at
+    # z=0.4389 against a cube whose top was z=0.435, and the grasp missed.
+    # Set this to about -(object height)/2 so the jaws straddle the object.
+    # -0.018 suits the 35 mm test cube; re-set it for the real object.
+    grasp_z_offset: -0.018
+    approach_height: 0.12
+    lift_height: 0.15
+    place_xyz: [0.33, 0.02, 0.4175]
+
+    # Deliberately slower than simulation.
+    vel_scale: 0.08
+    acc_scale: 0.08
+    planning_time: 10.0
+    planning_attempts: 16
+    pos_tolerance: 0.008
+    ori_tolerance: 0.10
+    cartesian_step: 0.004
+    cartesian_min_fraction: 0.9
+
+    detection_timeout: 90.0
+    dry_run: true
+    loop: false

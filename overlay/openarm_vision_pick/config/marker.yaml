@@ -1,0 +1,286 @@
+# Fiducial-guided picking.
+#
+# A square tag of known size gives a full 6-DOF pose from one view, which is
+# what a grasp needs and a blob centroid cannot supply: it fixes the object's
+# YAW, so the jaws can be turned across it rather than guessed at.
+#
+# Generate and print the tags first:
+#   python3 -m openarm_vision_pick.make_markers --size-mm 80 --ids 0 1 2 3
+# Print at 100% scale, then MEASURE the 100 mm ruler on the sheet.  Pose
+# distance is proportional to marker_size_m, so a tag printed 5% small puts
+# the object 5% nearer than it is - at 400 mm that is 20 mm, the difference
+# between a grasp and a miss.  If the ruler is not 100 mm, measure the black
+# square itself and put that number below.
+#
+# Two detectors, one per camera, because they do different jobs:
+#
+#   chest_marker_detector  finds the tag anywhere on the bench, from 0.4 m
+#                          out.  Good enough to send the arm to the right
+#                          place, not good enough to close on it.
+#   wrist_marker_detector  takes over once the arm is close, where the tag
+#                          fills enough of the frame for the corners - and so
+#                          the pose - to be accurate.
+#
+# Run whichever the stage needs; they publish the same PoseStamped, so
+# anything downstream takes a topic name and nothing else.
+
+chest_marker_detector:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /chest/openarm_chest_camera/color/image_raw
+    info_topic:  /chest/openarm_chest_camera/color/camera_info
+    depth_topic: /chest/openarm_chest_camera/aligned_depth_to_color/image_raw
+    camera_frame: openarm_chest_camera_color_optical_frame
+    target_frame: world
+
+    marker_family: aruco
+    aruco_dict: DICT_4X4_50
+    # The side of the BLACK SQUARE in metres.  Measure the print.
+    # Fallback size for ids not listed below.
+    marker_size_m: 0.080
+    # This bench has two tags of different sizes, and one size for both would
+    # misplace whichever it did not describe:
+    #   id 0 = 80 mm, the destination the object is moved to
+    #   id 1 (2026-09-10; was id 3) = 60 mm nominal, stuck on the object itself
+    size_ids: [0, 1, 3]
+    # Measured, not nominal: the depth camera implied 75.7 mm for id 0
+    # and 57.0 mm for id 3, both about 5% under - the printer scaled the
+    # sheet.  Check with a ruler and correct these if it disagrees.
+    size_values: [0.0757, 0.0570, 0.0570]
+    # [-1] means any id.  An empty list cannot be used: it
+    # carries no type, and rclpy leaves such a parameter
+    # uninitialized.
+    accept_ids: [-1]
+
+    # Where to grasp, in the MARKER's own frame: x right, y up, z out of the
+    # printed face.  A tag on the lid of a 40 mm tall box wants about
+    # [0, 0, -0.020] to aim at the object's middle rather than its surface.
+    # Expressed in the marker frame so it stays right when the object turns.
+    grasp_offset_xyz: [0.0, 0.0, 0.0]
+
+    # The measurement no longer leans on the tag's plane - the support
+    # surface is fitted from depth and the object is the connected blob at
+    # the tag's position - so this only has to keep out tags too small for
+    # their CENTRE to be trusted.  25 px is ample; detection itself gives out
+    # around 20.
+    min_marker_px: 25.0
+    ambiguity_ratio: 2.5
+
+    select: nearest
+    # Which tag the grasp is computed for.  -1 uses the rule above.  With a
+    # tag on the object and another on the destination, 'nearest' is a coin
+    # toss - name the object's id instead.  id 3 is on the object here.
+    select_id: 1
+    min_range_m: 0.30
+    max_range_m: 3.00
+
+    # The depth camera and the tag should agree about range.  A steady
+    # disagreement means marker_size_m is wrong, and the node says so - and
+    # says which value would fit - rather than quietly grasping short.
+    # Take the RANGE from the depth camera, the ORIENTATION from the tag.
+    # A mis-printed marker is a scale error, not noise: it biases every range
+    # by the same proportion, and a tolerance cannot correct a bias.  Depth
+    # measures the range directly and does not care how big the tag is.
+    range_from_depth: true
+
+    # Report what marker size would reconcile the tag with the depth camera -
+    # a free check on the print, per id.
+    calibrate_size: true
+    calibrate_frames: 30
+
+    depth_cross_check: true
+    depth_scale: 0.001
+    depth_warn_m: 0.03
+
+    # --- measuring the object around the marker ---------------------------
+    # The tag says WHERE to look; the depth image says what is there.  That
+    # is the whole reason this is more robust than the blob detectors in this
+    # package: they had to work out which lump was the target, and this does
+    # not.
+    measure_object: true
+    # How far around the tag to look.  It only has to contain the object -
+    # the connected-component step picks out the piece the tag is on, so
+    # this no longer has to exclude the neighbours by itself, but a smaller
+    # radius still costs less work.
+    search_radius_m: 0.10
+    object_max_height_m: 0.20
+    surface_margin_m: 0.006
+    min_object_points: 150
+    # The tag is on the object's top face; the body hangs below it.
+    marker_on_top: true
+
+    # An object whose short side exceeds this cannot be grasped, and the node
+    # says so instead of publishing a grasp that would close on nothing.
+    # OpenArm's left finger opens to about 44 mm.
+    # The widest object the jaws can span.  From the URDF the fingers
+    # start 10 mm apart and each travels 44 mm, so the geometric limit is
+    # 98 mm; 90 leaves room for the pads.  This is an OPENING, not the joint
+    # value - the 0.040 that used to be here was the latter, and it refused
+    # every object over 40 mm for no reason.
+    gripper_max_m: 0.090
+    grasp_clearance_m: 0.006
+
+    # object_axis: publish a yaw about world Z from the measured long axis,
+    # which is what pick_and_place expects - it adds 90 degrees itself to
+    # close ACROSS the object.  marker: publish the tag's full orientation.
+    orientation_mode: object_axis
+
+    ema_alpha: 0.5
+    stable_count: 3
+    stable_tol_m: 0.010
+    publish_debug_image: true
+
+wrist_marker_detector:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /camera/camera/color/image_raw
+    info_topic:  /camera/camera/color/camera_info
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    camera_frame: openarm_left_camera_color_optical_frame
+    target_frame: world
+
+    marker_family: aruco
+    aruco_dict: DICT_4X4_50
+    # Fallback size for ids not listed below.
+    marker_size_m: 0.080
+    # This bench has two tags of different sizes, and one size for both would
+    # misplace whichever it did not describe:
+    #   id 0 = 80 mm, the destination the object is moved to
+    #   id 1 (2026-09-10; was id 3) = 60 mm nominal, stuck on the object itself
+    size_ids: [0, 1, 3]
+    # Measured, not nominal: the depth camera implied 75.7 mm for id 0
+    # and 57.0 mm for id 3, both about 5% under - the printer scaled the
+    # sheet.  Check with a ruler and correct these if it disagrees.
+    size_values: [0.0757, 0.0570, 0.0570]
+    # [-1] means any id.  An empty list cannot be used: it
+    # carries no type, and rclpy leaves such a parameter
+    # uninitialized.
+    accept_ids: [-1]
+    grasp_offset_xyz: [0.0, 0.0, 0.0]
+
+    # The measurement no longer leans on the tag's plane - the support
+    # surface is fitted from depth and the object is the connected blob at
+    # the tag's position - so this only has to keep out tags too small for
+    # their CENTRE to be trusted.  25 px is ample; detection itself gives out
+    # around 20.
+    min_marker_px: 25.0
+    ambiguity_ratio: 2.5
+
+    select: nearest
+    # Which tag the grasp is computed for.  -1 uses the rule above.  With a
+    # tag on the object and another on the destination, 'nearest' is a coin
+    # toss - name the object's id instead.  id 3 is on the object here.
+    select_id: 1
+    # The D405 is a short-range camera; anything it claims to see past half a
+    # metre is a bad corner fit rather than an object.
+    min_range_m: 0.07
+    max_range_m: 0.60
+
+    # Take the RANGE from the depth camera, the ORIENTATION from the tag.
+    # A mis-printed marker is a scale error, not noise: it biases every range
+    # by the same proportion, and a tolerance cannot correct a bias.  Depth
+    # measures the range directly and does not care how big the tag is.
+    range_from_depth: true
+
+    # Report what marker size would reconcile the tag with the depth camera -
+    # a free check on the print, per id.
+    calibrate_size: true
+    calibrate_frames: 30
+
+    depth_cross_check: true
+    depth_scale: 0.001
+    depth_warn_m: 0.02
+
+    # Tighter than the chest camera: up close the pose is good, so there is
+    # no reason to accept as much wander before calling it settled.
+    # --- measuring the object around the marker ---------------------------
+    # The tag says WHERE to look; the depth image says what is there.  That
+    # is the whole reason this is more robust than the blob detectors in this
+    # package: they had to work out which lump was the target, and this does
+    # not.
+    measure_object: true
+    # How far around the tag to look.  It only has to contain the object -
+    # the connected-component step picks out the piece the tag is on, so
+    # this no longer has to exclude the neighbours by itself, but a smaller
+    # radius still costs less work.
+    search_radius_m: 0.10
+    object_max_height_m: 0.20
+    surface_margin_m: 0.006
+    min_object_points: 150
+    # The tag is on the object's top face; the body hangs below it.
+    marker_on_top: true
+
+    # An object whose short side exceeds this cannot be grasped, and the node
+    # says so instead of publishing a grasp that would close on nothing.
+    # OpenArm's left finger opens to about 44 mm.
+    # The widest object the jaws can span.  From the URDF the fingers
+    # start 10 mm apart and each travels 44 mm, so the geometric limit is
+    # 98 mm; 90 leaves room for the pads.  This is an OPENING, not the joint
+    # value - the 0.040 that used to be here was the latter, and it refused
+    # every object over 40 mm for no reason.
+    gripper_max_m: 0.090
+    grasp_clearance_m: 0.006
+
+    # object_axis: publish a yaw about world Z from the measured long axis,
+    # which is what pick_and_place expects - it adds 90 degrees itself to
+    # close ACROSS the object.  marker: publish the tag's full orientation.
+    orientation_mode: object_axis
+
+    ema_alpha: 0.5
+    stable_count: 4
+    stable_tol_m: 0.005
+    publish_debug_image: true
+
+# ---------------------------------------------------------------------------
+# reach_overlay: live "can the arm reach that?" drawn on the camera image.
+#
+#   ros2 run openarm_vision_pick reach_overlay --ros-args --params-file <this>
+#   ros2 run rqt_image_view rqt_image_view /reach_overlay/image
+#
+# Sweeps /compute_ik over a grid once at start-up (under a minute), then
+# judges each marker against that grid every frame.  Slide the object about
+# until its circle turns green and the banner says BOTH REACHABLE.
+#
+# bench_z MUST be right: every cell is judged at bench_z + object_height/2,
+# and a wrong bench height moves the whole map.  The detector publishes each
+# tag's world pose - a tag lying flat on the bench reports the bench z.
+# ---------------------------------------------------------------------------
+reach_overlay:
+  ros__parameters:
+    use_sim_time: false
+
+    color_topic: /chest/openarm_chest_camera/color/image_raw
+    info_topic:  /chest/openarm_chest_camera/color/camera_info
+    camera_frame: openarm_chest_camera_color_optical_frame
+    poses_topic: /chest_marker_detector/poses
+    ids_topic: /chest_marker_detector/ids
+    planning_frame: world
+
+    group: left_arm
+    tcp_link: openarm_left_hand_tcp
+    pick_id: 1
+    place_id: 0
+
+    # x min, max, step / y min, max, step.  Covers the whole region the
+    # earlier sweep found reachable, with room around it.
+    # Coarser than before: every lean tried multiplies the time spent on
+    # cells that fail, and 5 cm is plenty for "slide it until it goes green"
+    # - the pick itself re-checks IK at the exact spot.
+    grid_x: [0.05, 0.45, 0.05]
+    grid_y: [-0.10, 0.55, 0.05]
+    yaws_deg: [0.0, 45.0, 90.0, 135.0]
+    approach_height_m: 0.10
+    ik_timeout_s: 0.02
+    # Leans to try after straight down.  Same list as marker_pick.yaml, so
+    # what the overlay calls reachable is what the pick will accept.
+    tilt_deg: [0.0, 15.0, 30.0]
+
+    # MEASURE THIS.  Read the z of a tag lying flat on the bench:
+    #   ros2 topic echo /chest_marker_detector/poses --once
+    bench_z: 0.20
+    object_height_m: 0.040
+    # Or pin the heights directly (0 = derive from the two above).
+    grasp_z: 0.0
+    place_z: 0.0
